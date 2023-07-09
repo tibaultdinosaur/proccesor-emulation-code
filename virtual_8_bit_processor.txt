@@ -1,0 +1,372 @@
+// Define the registers
+uint8_t PC;   // Program Counter (8-bit)
+uint8_t AC;   // Accumulator (8-bit)
+uint8_t X;    // X Register (8-bit)
+uint8_t Y;    // Y Register (8-bit)
+uint8_t SR;   // Status Register [NV-BDIZC] (8-bit)
+uint8_t stackpointer;   // Stack Pointer (8-bit)
+
+
+// Additional registers
+uint8_t dataRegister;    // Data Register (8-bit)
+uint8_t indexRegister;   // Index Register (8-bit)
+
+// Flag constants
+const uint8_t CF = 0x12;  // Carry Flag
+const uint8_t ZF = 0x13;  // Zero Flag
+const uint8_t IF = 0x14;  // Interrupt Enable Flag
+
+
+void updateZeroFlag() {
+  if (AC == 0) {
+    // Set the zero flag
+    SR |= (1 << 1);
+  } else {
+    // Clear the zero flag
+    SR &= ~(1 << 1);
+  }
+}
+
+void updateNegativeFlag() {
+  if (AC & 0x80) {
+    // Set the negative flag
+    SR |= (1 << 7);
+  } else {
+    // Clear the negative flag
+    SR &= ~(1 << 7);
+  }
+}
+
+
+
+// Define the memory space for instructions
+const uint16_t MAX_MEMORY_SIZE = 256;   // Maximum memory size (adjust as needed)
+uint8_t memory[MAX_MEMORY_SIZE];        // Array to store instructions
+
+// Define the pin numbers for register I/O
+const uint8_t PC_PIN = 2;
+const uint8_t AC_PIN = 3;
+const uint8_t X_PIN = 4;
+const uint8_t Y_PIN = 5;
+const uint8_t SR_PIN = 6;
+const uint8_t stackpointer_PIN = 7;
+
+// Additional register pins
+const uint8_t DATA_REGISTER_PIN = 8;
+const uint8_t INDEX_REGISTER_PIN = 9;
+
+
+// Instruction constants
+const uint8_t LOAD_IMMEDIATE = 0x01;
+const uint8_t LOAD_REGISTER = 0x02;
+const uint8_t STORE_REGISTER = 0x03;
+const uint8_t ADD_IMMEDIATE = 0x04;
+const uint8_t ADD_REGISTER = 0x05;
+const uint8_t JUMP = 0x06;
+const uint8_t BITWISE_AND = 0x07;
+const uint8_t BITWISE_XOR = 0x08;
+const uint8_t BITWISE_OR = 0x09;
+const uint8_t SUB_REGISTER = 0x0A;
+const uint8_t SUB_IMMEDIATE = 0x0B;
+const uint8_t ADD_WITH_CARRY = 0x0C;
+const uint8_t BRANCH_ON_CARRY_SET = 0x0E;
+const uint8_t CLEAR_CARRY = 0x0F;
+const uint8_t CLEAR_DECIMAL = 0x10;
+const uint8_t BRANCH_ON_CARRY_CLEAR = 0x11;
+const uint8_t JP = 0x12;
+const uint8_t JN = 0x13;
+const uint8_t INC = 0x14;
+const uint8_t DECREMENT = 0x15;
+const uint8_t JZ = 0x16;
+const uint8_t JE = 0x17;
+
+
+void loadImmediate(uint8_t value) {
+  AC = value;
+  digitalWrite(AC_PIN, AC);
+}
+
+void loadRegister(uint8_t address) {
+  AC = memory[address];
+  digitalWrite(AC_PIN, AC);
+
+  // Update the flags based on the loaded value
+  updateZeroFlag();
+  updateNegativeFlag();
+}
+
+
+void addImmediate(uint8_t value) {
+  uint16_t result = AC + value;
+  AC = result & 0xFF;
+  digitalWrite(AC_PIN, AC);
+  updateZeroFlag();
+  updateNegativeFlag();
+}
+
+void addRegister(uint8_t registerValue) {
+  uint16_t result = AC + registerValue;
+  AC = result & 0xFF;
+  digitalWrite(AC_PIN, AC);
+  updateZeroFlag();
+  updateNegativeFlag();
+}
+
+
+void storeRegister(uint8_t address) {
+  memory[address] = AC;
+}
+
+
+void subtractRegister() {
+  AC -= X;
+  digitalWrite(AC_PIN, AC);
+  updateZeroFlag();
+  updateNegativeFlag();
+}
+
+void subtractImmediate() {
+  AC -= memory[PC++];
+  digitalWrite(AC_PIN, AC);
+  updateZeroFlag();
+  updateNegativeFlag();
+}
+
+void addWithCarry() {
+  uint16_t sum = AC + (SR & (1 << 0));
+  AC = sum & 0xFF;
+  SR = (SR & -(1 << 0)) | ((sum >> 8) & 1);
+  digitalWrite(AC_PIN, AC);
+  updateZeroFlag();
+  updateNegativeFlag();
+}
+
+void branchOnCarryClear() {
+  if ((SR & (1 << 0)) == 0) {  // Check if carry flag is clear
+    PC = memory[PC];  // Jump to the immediate value stored in the next memory location
+  } else {
+    PC++;  // Skip the immediate value
+  }
+}
+
+void branchOnCarrySet() {
+  if ((SR & (1 << 0)) != 0) {  // Check if carry flag is set
+    PC = memory[PC];  // Jump to the immediate value stored in the next memory location
+  } else {
+    PC++;  // Skip the immediate value
+  }
+}
+
+void clearCarry() {
+  SR &= ~(1 << 0);  // Clear the carry flag
+}
+
+void clearDecimal() {
+  SR &= ~(1 << 3);  // Clear the decimal flag
+}
+
+void jumpIfPositive(uint16_t targetAddress) {
+  if ((SR & (1 << 7)) == 0) {  // Check if negative flag is clear
+    PC = targetAddress;  // Jump to the specified address
+  }
+}
+
+void jumpIfNegative(uint16_t targetAddress) {
+  if ((SR & (1 << 7)) != 0) {  // Check if negative flag is set
+    PC = targetAddress;  // Jump to the specified address
+  }
+}
+
+void increment() {
+  AC++;
+  digitalWrite(AC_PIN, AC);
+  updateZeroFlag();
+  updateNegativeFlag();
+}
+
+void decrement() {
+  AC--;
+  digitalWrite(AC_PIN, AC);
+  updateZeroFlag();
+  updateNegativeFlag();
+}
+
+void jumpIfZero(uint16_t targetAddress) {
+  if ((SR & (1 << 1)) != 0) {  // Check if zero flag is set
+    PC = targetAddress;  // Jump to the specified address
+  }
+}
+
+void jumpIfEqual(uint16_t targetAddress) {
+  if ((SR & (1 << 1)) != 0 && (SR & (1 << 7)) != 0) {  // Check if zero and negative flags are set
+    PC = targetAddress;  // Jump to the specified address
+  }
+}
+
+
+void executeInstruction() {
+  uint8_t instruction = memory[PC++];
+  
+  // Execute instructions based on the fetched value
+  switch (instruction) {
+    case LOAD_IMMEDIATE:
+      loadImmediate(memory[PC++]);
+      break;
+      
+    case LOAD_REGISTER:
+      loadRegister(memory[PC++]);
+      break;
+      
+    case STORE_REGISTER:
+      storeRegister(memory[PC++]);
+      break;
+      
+    case ADD_IMMEDIATE:
+      addImmediate(memory[PC++]);
+      break;
+      
+    case ADD_REGISTER:
+      addRegister(X);
+      break;
+
+      case JUMP:
+      uint16_t targetAddress = (memory[PC++] << 8) | memory[PC++];
+      PC = targetAddress;
+      break;
+
+      case BITWISE_AND:
+      AC &= memory[PC++];
+      digitalWrite(AC_PIN, AC);
+      updateZeroFlag();
+      updateNegativeFlag();
+      break;
+
+      case BITWISE_XOR:
+      AC ^= memory[PC++];
+      digitalWrite(AC_PIN, AC);
+      updateZeroFlag();
+      updateNegativeFlag();
+      break;
+
+      case BITWISE_OR:
+      AC |= memory[PC++];
+      digitalWrite(AC_PIN, AC);
+      updateZeroFlag();
+      updateNegativeFlag();
+      break;
+
+          case SUB_REGISTER:
+      subtractRegister(); // Call the subtractRegister function
+      break;
+      
+    case SUB_IMMEDIATE:
+      subtractImmediate();
+      break;
+
+case ADD_WITH_CARRY:
+      addWithCarry();
+      break;
+      
+    case BRANCH_ON_CARRY_CLEAR:
+      branchOnCarryClear();
+      break;
+      
+    case BRANCH_ON_CARRY_SET:
+      branchOnCarrySet();
+      break;
+      
+    case CLEAR_CARRY:
+      clearCarry();
+      break;
+      
+    case CLEAR_DECIMAL:
+      clearDecimal();
+      break;
+
+     case JP:
+  jumpIfPositive((memory[PC++] << 8) | memory[PC++]);
+  break;
+
+case JN:
+  jumpIfNegative((memory[PC++] << 8) | memory[PC++]);
+  break;
+
+case INC:
+  increment();
+  break;
+
+case DEC:
+  decrement();
+  break;
+
+case JZ:
+  jumpIfZero((memory[PC++] << 8) | memory[PC++]);
+  break;
+
+case JE:
+  jumpIfEqual((memory[PC++] << 8) | memory[PC++]);
+  break;
+ 
+
+
+    // Handle other instructions similarly
+      
+    default:
+      // Unknown instruction, handle error or do nothing
+      break;
+  }
+}
+
+void setup() {
+  // Set Arduino Nano pins as output for register I/O
+  pinMode(PC_PIN, OUTPUT);
+  pinMode(AC_PIN, OUTPUT);
+  pinMode(X_PIN, OUTPUT);
+  pinMode(Y_PIN, OUTPUT);
+  pinMode(SR_PIN, OUTPUT);
+  pinMode(stackpointer_PIN, OUTPUT);
+  
+  // Additional register pins
+  pinMode(DATA_REGISTER_PIN, OUTPUT);
+  pinMode(INDEX_REGISTER_PIN, OUTPUT);
+
+  // Initialize registers and memory
+  PC = 0;   // Start at memory address 0
+  AC = 0;
+  X = 0;
+  Y = 0;
+  SR = 0;
+  stackpointer = 0;
+  
+  // Initialize additional registers
+  dataRegister = 0x00;
+  indexRegister = 0xFF;
+  
+  // Load instructions and data into memory
+  memory[0] = LOAD_IMMEDIATE;   // Load immediate
+  memory[1] = 42;              // Immediate value
+  memory[2] = ADD_REGISTER;    // Add register
+  memory[3] = SUB_IMMEDIATE;
+  memory[4] = 10;
+  
+  // Set initial values for testing
+  AC = 10;
+  X = 5;
+  
+  // Set the initial register values on the corresponding pins
+  digitalWrite(PC_PIN, PC);
+  digitalWrite(AC_PIN, AC);
+  digitalWrite(X_PIN, X);
+  digitalWrite(Y_PIN, Y);
+  digitalWrite(SR_PIN, SR);
+  digitalWrite(stackpointer_PIN, SP);
+
+  // Set the initial values for additional registers on the corresponding pins
+  digitalWrite(DATA_REGISTER_PIN, dataRegister);
+  digitalWrite(INDEX_REGISTER_PIN, indexRegister);
+}
+
+
+void loop() {
+  executeInstruction();
+}
